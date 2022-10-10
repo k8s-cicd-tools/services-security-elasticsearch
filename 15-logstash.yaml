@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-configmap
+  namespace: es
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+  logstash.conf: |
+    # all input will come from filebeat, no local logs
+    input {
+      beats {
+        port => 5044
+        #ssl => true
+        #ssl_key => '/usr/share/logstash/config/certs/pkcs8/tls.pkcs8.key'
+        #ssl_certificate => '/usr/share/logstash/config/certs/logstash/tls.crt'
+      }
+    }
+    filter {
+      if [message] =~ /^\{.*\}$/ {
+        json {
+          source => "message"
+        }
+      }
+      if [ClientHost] {
+        geoip {
+          source => "ClientHost"
+        }
+      }
+    }
+    output {
+        elasticsearch {
+            hosts => [ "${ELASTICSEARCH_HOSTS}" ]    
+            cacert => '/usr/share/logstash/config/certs/es/ca.crt'
+            user => "${LOGSTASH_USER}"
+            password => "${LOGSTASH_PASSWORD}"
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash-deployment
+  namespace: es
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:6.3.0
+        ports:
+        - containerPort: 5044
+        env:
+          - name: ELASTICSEARCH_HOSTS
+            value: "https://es-client.es.svc.cluster.local:9200"
+          - name: ELASTICSEARCH_USER
+            value: "elastic"
+          - name: LOGSTASH_USER
+            value: "logstash_writer"
+          - name: ELASTICSEARCH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: es-pw-elastic
+                key: password
+          - name: LOGSTASH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: es-pw-logstash-writer
+                key: password
+        volumeMounts:
+          - name: config-volume
+            mountPath: /usr/share/logstash/config
+          - name: logstash-pipeline-volume
+            mountPath: /usr/share/logstash/pipeline
+          - name: logstash-certs
+            mountPath: /usr/share/logstash/config/certs/logstash
+            readOnly: true
+          - name: logstash-certs-pkcs8
+            mountPath: /usr/share/logstash/config/certs/pkcs8
+          - name: es-http-tls
+            mountPath: /usr/share/logstash/config/certs/es
+            readOnly: true
+      volumes:
+      - name: es-http-tls
+        secret:
+          secretName: es-http-tls
+      - name: config-volume
+        configMap:
+          name: logstash-configmap
+          items:
+            - key: logstash.yml
+              path: logstash.yml
+      - name: logstash-pipeline-volume
+        configMap:
+          name: logstash-configmap
+          items:
+            - key: logstash.conf
+              path: logstash.conf
+      - name: logstash-certs
+        secret:
+          secretName: logstash-tls
+      - name: logstash-certs-pkcs8
+        persistentVolumeClaim:
+          claimName: pkcs8-pv-claim
+      initContainers:
+        - name: key-to-pkcs8
+          image: frapsoft/openssl:latest
+          #openssl pkcs8 -in config/certs/logstash.key -topk8 -nocrypt -out config/certs/logstash.pkcs8.key
+          command: [ "/bin/sh", "-c", "openssl pkcs8 -in /usr/share/logstash/config/certs/logstash/tls.key -topk8 -nocrypt -out /usr/share/logstash/config/certs/pkcs8/tls.pkcs8.key" ]
+          #command: [ "ls", "-l", "/usr/share/logstash/config/certs/logstash" ]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: logstash-certs
+              mountPath: /usr/share/logstash/config/certs/logstash
+            - name: logstash-certs-pkcs8
+              mountPath: /usr/share/logstash/config/certs/pkcs8
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: logstash-service
+  namespace: es
+spec:
+  selector:
+    app: logstash
+  ports:
+  - protocol: TCP
+    port: 5044
+    targetPort: 5044
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pkcs8-pv-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/logstash_pkcs8_data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pkcs8-pv-claim
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi

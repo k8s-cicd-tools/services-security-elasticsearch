@@ -1,0 +1,59 @@
+POST /_security/role/devrole
+{
+  "indices" : [
+    {
+      "names" : [ "logstash-*" ],
+      "privileges" : [ "read" ],
+      "query" : {
+        "template" : {
+          "source" : {
+            "term" : { "kubernetes.namespace" : "{{_user.metadata.namespace}}" }
+          }
+        }
+      }
+    }
+  ]
+}
+
+POST /_security/user/developer1
+{
+  "password" : "9a2b3c4d5e6f7g8h9i0j",
+  "roles" : [ "devrole", "kibana_system", "kibana_user", "transport_client" ],
+  "full_name" : "developer 1",
+  "email" : "developer1@example.com",
+  "metadata" : {
+    "namespace" : "dev1"
+  }
+}
+
+
+
+POST /_security/user/developer2
+{
+  "password" : "9a2b3c4d5e6f7g8h9i0j",
+  "roles" : [ "devrole", "kibana_system", "kibana_user", "transport_client" ],
+  "full_name" : "developer 2",
+  "email" : "developer2@example.com",
+    "metadata" : {
+        "namespace" : "dev2"
+    }
+}
+
+
+POST /_security/role/logstash_writer
+{
+  "cluster": ["manage_index_templates", "monitor"],
+  "indices": [
+    {
+      "names": [ "logstash-*" ],
+      "privileges": ["write","delete","create_index"]
+    }
+  ]
+}
+
+POST /_security/user/logstash_internal
+{
+  "password" : "yg3CwGpGoiiGwgqGXstM",
+  "roles" : [ "logstash_writer"],
+  "full_name" : "Internal Logstash User"
+}
