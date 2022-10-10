@@ -224,6 +224,7 @@ only logs from dev1 are visible.
 
 23. Login to Kibana as developer2 and check the logs.
 ```
+Time                       namespace    message
 Oct 10, 2022 @ 01:35:26.182 dev2    Thanks for visiting devopscube! 870
 Oct 10, 2022 @ 01:35:25.182 dev2    Thanks for visiting devopscube! 869
 Oct 10, 2022 @ 01:35:24.181 dev2    Thanks for visiting devopscube! 868
